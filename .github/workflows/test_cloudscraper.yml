@@ -1,0 +1,11 @@
+name: Test Cloudscraper
+on: [workflow_dispatch]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Run test
+        run: |
+          pip install cloudscraper beautifulsoup4
+          python test_cloudscraper.py
