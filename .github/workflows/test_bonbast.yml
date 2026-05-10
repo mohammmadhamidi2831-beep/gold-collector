@@ -1,16 +1,11 @@
-yaml
 name: Test Bonbast
-
-on:
-  workflow_dispatch:
-
+on: [workflow_dispatch]
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-      - run: pip install requests beautifulsoup4
-      - run: python check_bonbast.py
+      - uses: actions/checkout@v3
+      - name: Run test
+        run: |
+          pip install requests beautifulsoup4
+          python check_bonbast.py
