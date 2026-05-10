@@ -1,32 +1,24 @@
 name: Gold Data Collector
-
 on:
   schedule:
-    - cron: '0 * * * *'  # هر ۶۰ دقیقه یکبار اجرا می‌شود
-  workflow_dispatch:      # امکان اجرای دستی
-
+    - cron: '0 * * * *'
+  workflow_dispatch:
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-
       - name: Install dependencies
         run: pip install -r reqs.txt
-
       - name: Run collector
         run: python collector.py
-
       - name: Commit and push CSV changes
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add gold_data.csv
+          git add gold_data.csv || echo "No CSV to add"
           git diff --staged --quiet || git commit -m "Update gold data"
           git push
