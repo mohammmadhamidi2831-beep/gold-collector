@@ -113,7 +113,7 @@ def job():
     print(f"Dollar: {dollar}, Gold18: {gold18}")
 
 
-if ons and dollar and gold18:
+    if ons and dollar and gold18:
         ons_toman, gol18_calc, gol17_calc = compute_derived(ons, dollar, gold18, gold17)
         save_to_csv(now, ons, dollar, gold18, gold17, ons_toman, gol18_calc, gol17_calc)
     else:
