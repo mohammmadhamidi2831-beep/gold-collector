@@ -1,55 +1,69 @@
-import cloudscraper
+import requests
 import pandas as pd
-from bs4 import BeautifulSoup
 import yfinance as yf
 from datetime import datetime
 import os
-import requests
 
 CSV_FILE = "gold_data.csv"
 
-# --- ۱. انس جهانی با yfinance (Fallback به API جایگزین) ---
+# --- ۱. انس جهانی با yfinance + Fallback ---
 def get_ons_dollar():
     try:
         gold = yf.Ticker("GC=F")
         data = gold.history(period="1d", interval="1m")
         if not data.empty:
             return round(data['Close'].iloc[-1], 2)
-        else:
-            prev = gold.info.get('regularMarketPreviousClose', None)
-            if prev is not None:
-                return round(prev, 2)
+        prev = gold.info.get('regularMarketPreviousClose', None)
+        if prev is not None:
+            return round(prev, 2)
     except:
         pass
-    # Fallback خیلی ساده: یک API رایگان دیگر (exchangerate.host)
+    # Fallback API
     try:
         resp = requests.get("https://api.exchangerate.host/latest?base=USD&symbols=XAU", timeout=10)
         data = resp.json()
         if data.get('success'):
-            return round(1 / data['rates']['XAU'], 2)  # تبدیل هر انس به دلار
+            return round(1 / data['rates']['XAU'], 2)
     except:
         pass
     return None
 
-# --- ۲. قیمت‌های داخلی با cloudscraper ---
-scraper = cloudscraper.create_scraper()
+# --- ۲. قیمت‌های داخلی از Bonbast API (JSON رایگان) ---
 def get_iran_prices():
     try:
-        resp = scraper.get('https://www.tgju.org/', timeout=15)
-        soup = BeautifulSoup(resp.text, 'html.parser')
-
-        def extract_price(market_row):
-            row = soup.find('tr', {'data-market-row': market_row})
-            if row:
-                cell = row.find('td', class_='nf')
-                if cell:
-                    return float(cell.text.strip().replace(',', ''))
-            return None
-
-        dollar = extract_price('price_dollar_rl')
-        gold18 = extract_price('geram18') or extract_price('price_gold18')
+        # API معروف Bonbast که JSON برمی‌گرداند
+        url = "https://bonbast.com/json"
+        headers = {
+            'User-Agent': 'Mozilla/5.0',
+            'Accept': 'application/json'
+        }
+        resp = requests.get(url, headers=headers, timeout=10)
+        data = resp.json()
+        # دلار آزاد: data['USD']['open']['sell'] یا ['buy']
+        dollar = data.get('USD', {}).get('open', {}).get('sell', None)
+        if dollar is None:
+            # تلاش برای کلیدهای دیگر
+            dollar = data.get('usd', {}).get('open', {}).get('p', None)  # بعضی نسخه‌ها
+        
+        # طلای ۱۸ (معمولاً با نماد azadi18 یا gold18)
+        # در Bonbast، طلای ۱۸ با کلید 'gold' یا 'geram18' می‌آید.
+        gold18 = None
+        for key in ['gold', 'geram18', 'azadi18']:
+            if key in data:
+                gold_data = data[key]
+                if isinstance(gold_data, dict):
+                    gold18 = gold_data.get('open', {}).get('sell', None)
+                    if gold18: break
+        # گاهی مستقیماً عدد است
+        if gold18 is None:
+            for key in ['geram18', 'gold18']:
+                if key in data and isinstance(data[key], (int, float)):
+                    gold18 = data[key]
+                    break
+        
         return dollar, gold18, None
-    except:
+    except Exception as e:
+        print(f"Bonbast API error: {e}")
         return None, None, None
 
 # --- ۳. محاسبات ---
@@ -59,7 +73,7 @@ def compute_derived(ons, dollar, gold18, gold17):
     gol17_calc = round((ons * dollar / 31.1035) * (17/24), 2) if (ons and dollar) else None
     return ons_toman, gol18_calc, gol17_calc
 
-# --- ۴. ذخیره‌سازی (فقط اگر داده جدید باشد) ---
+# --- ۴. ذخیره‌سازی (بدون ردیف تکراری) ---
 def save_to_csv(timestamp, ons, dollar, gold18, gold17, ons_toman, gol18_calc, gol17_calc):
     row = {
         'timestamp': timestamp.strftime('%Y-%m-%d %H:%M:%S'),
@@ -72,7 +86,6 @@ def save_to_csv(timestamp, ons, dollar, gold18, gold17, ons_toman, gol18_calc, g
         'gol17_calc': gol17_calc
     }
     df_new = pd.DataFrame([row])
-    # نخوانیم ردیف تکراری ذخیره شود (اگر CSV وجود دارد و آخرین ردیف همه مقادیر غیر timestamp مشابه بود)
     if os.path.exists(CSV_FILE):
         try:
             existing = pd.read_csv(CSV_FILE)
@@ -99,7 +112,8 @@ def job():
     dollar, gold18, gold17 = get_iran_prices()
     print(f"Dollar: {dollar}, Gold18: {gold18}")
 
-    if ons and dollar and gold18:
+
+if ons and dollar and gold18:
         ons_toman, gol18_calc, gol17_calc = compute_derived(ons, dollar, gold18, gold17)
         save_to_csv(now, ons, dollar, gold18, gold17, ons_toman, gol18_calc, gol17_calc)
     else:
