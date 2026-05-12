@@ -1,12 +1,15 @@
+import cloudscraper
 import pandas as pd
 import requests
+from bs4 import BeautifulSoup
 import yfinance as yf
 from datetime import datetime
 import os
+import re
 
 CSV_FILE = "gold_data.csv"
 
-# --- ۱. انس جهانی (همون روش قبلی و پایدار) ---
+# --- ۱. انس جهانی (همون همیشگی) ---
 def get_ons_dollar():
     try:
         gold = yf.Ticker("GC=F")
@@ -27,29 +30,43 @@ def get_ons_dollar():
         pass
     return None
 
-# --- ۲. قیمت‌های داخلی از API جدید tgju ---
+# --- ۲. قیمت‌های داخلی از mex.co.ir ---
+scraper = cloudscraper.create_scraper()
+
 def get_iran_prices():
     try:
-        # این API خیلی ساده یک JSON تمیز برمی‌گردونه.
-        url = "https://call-api.tgju.org/api/v1/market/indicator/summary/price_dollar_rl,geram18"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        resp = requests.get(url, headers=headers, timeout=10)
-        data = resp.json()
+        # مرکز مبادله ارز و طلا
+        url = "https://mex.co.ir/"
+        resp = scraper.get(url, timeout=15)
+        soup = BeautifulSoup(resp.text, 'html.parser')
         
-        dollar = None
-        gold18 = None
+        # پیدا کردن همه تگ‌های td با کلاس specific (باید کلاس‌ها رو از صفحه پیدا کنیم)
+        # معمولاً قیمت‌ها در جدول‌هایی با کلاس table-bordered یا مشابه قرار دارن
+        tables = soup.find_all('table', class_='table-bordered')
+        for table in tables:
+            rows = table.find_all('tr')
+            for row in rows:
+                cells = row.find_all('td')
+                if len(cells) >= 2:
+                    title = cells[0].get_text(strip=True)
+                    value = cells[1].get_text(strip=True).replace(',', '')
+                    # بررسی کن که آیا این ردیف مربوط به دلار یا طلاست
+                    if 'دلار' in title and 'آزاد' not in title:
+                        dollar = float(re.sub(r'[^\d.]', '', value))
+                        print(f"Found dollar: {dollar}")
+                    elif 'طلای' in title and '۱۸' in title:
+                        gold18 = float(re.sub(r'[^\d.]', '', value))
+                        print(f"Found gold18: {gold18}")
 
-        if 'response' in data and 'indicators' in data['response']:
-            indicators = data['response']['indicators']
-            for ind in indicators:
-                if ind['symbol'] == 'price_dollar_rl':
-                    dollar = float(ind['price'])
-                elif ind['symbol'] == 'geram18':
-                    gold18 = float(ind['price'])
-                    
+        # اگر پیدا نشد، چاپ کل صفحه برای دیباگ
+        if not dollar or not gold18:
+            print("Could not find specific prices. Printing page title and first 500 chars:")
+            print(soup.title.string if soup.title else "No title")
+            print(str(soup)[:500])
+            
         return dollar, gold18, None
     except Exception as e:
-        print(f"TGJU API error: {e}")
+        print(f"Mex error: {e}")
         return None, None, None
 
 # --- ۳. محاسبات (بدون تغییر) ---
@@ -86,6 +103,7 @@ def save_to_csv(timestamp, ons, dollar, gold18, gold17, ons_toman, gol18_calc, g
     header = not os.path.exists(CSV_FILE)
     df_new.to_csv(CSV_FILE, mode='a', index=False, header=header)
     print("Data saved.")
+
 
 # --- ۵. اجرای اصلی (بدون تغییر) ---
 def job():
