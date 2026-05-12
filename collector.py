@@ -1,12 +1,15 @@
-import requests
+import cloudscraper
 import pandas as pd
+import requests
+from bs4 import BeautifulSoup
 import yfinance as yf
 from datetime import datetime
 import os
+import random
 
 CSV_FILE = "gold_data.csv"
 
-# --- ۱. انس جهانی با yfinance + Fallback ---
+# --- ۱. انس جهانی با yfinance (+ Fallback) ---
 def get_ons_dollar():
     try:
         gold = yf.Ticker("GC=F")
@@ -18,7 +21,6 @@ def get_ons_dollar():
             return round(prev, 2)
     except:
         pass
-    # Fallback API
     try:
         resp = requests.get("https://api.exchangerate.host/latest?base=USD&symbols=XAU", timeout=10)
         data = resp.json()
@@ -28,43 +30,31 @@ def get_ons_dollar():
         pass
     return None
 
-# --- ۲. قیمت‌های داخلی از Bonbast API (JSON رایگان) ---
+# --- ۲. قیمت‌های داخلی با cloudscraper + دور زدن کش tgju ---
+scraper = cloudscraper.create_scraper(
+    browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
+)
+
 def get_iran_prices():
     try:
-        # API معروف Bonbast که JSON برمی‌گرداند
-        url = "https://bonbast.com/json"
-        headers = {
-            'User-Agent': 'Mozilla/5.0',
-            'Accept': 'application/json'
-        }
-        resp = requests.get(url, headers=headers, timeout=10)
-        data = resp.json()
-        print(data)
-        # دلار آزاد: data['USD']['open']['sell'] یا ['buy']
-        dollar = data.get('USD', {}).get('open', {}).get('sell', None)
-        if dollar is None:
-            # تلاش برای کلیدهای دیگر
-            dollar = data.get('usd', {}).get('open', {}).get('p', None)  # بعضی نسخه‌ها
-        
-        # طلای ۱۸ (معمولاً با نماد azadi18 یا gold18)
-        # در Bonbast، طلای ۱۸ با کلید 'gold' یا 'geram18' می‌آید.
-        gold18 = None
-        for key in ['gold', 'geram18', 'azadi18']:
-            if key in data:
-                gold_data = data[key]
-                if isinstance(gold_data, dict):
-                    gold18 = gold_data.get('open', {}).get('sell', None)
-                    if gold18: break
-        # گاهی مستقیماً عدد است
-        if gold18 is None:
-            for key in ['geram18', 'gold18']:
-                if key in data and isinstance(data[key], (int, float)):
-                    gold18 = data[key]
-                    break
-        
+        # یک پارامتر تصادفی برای دور زدن کش
+        url = f"https://www.tgju.org/?_={random.randint(1000,9999)}"
+        resp = scraper.get(url, timeout=15)
+        soup = BeautifulSoup(resp.text, 'html.parser')
+
+        def extract_price(market_row):
+            row = soup.find('tr', {'data-market-row': market_row})
+            if row:
+                cell = row.find('td', class_='nf')
+                if cell:
+                    return float(cell.text.strip().replace(',', ''))
+            return None
+
+        dollar = extract_price('price_dollar_rl')
+        gold18 = extract_price('geram18') or extract_price('price_gold18')
         return dollar, gold18, None
     except Exception as e:
-        print(f"Bonbast API error: {e}")
+        print(f"tgju error: {e}")
         return None, None, None
 
 # --- ۳. محاسبات ---
@@ -87,6 +77,8 @@ def save_to_csv(timestamp, ons, dollar, gold18, gold17, ons_toman, gol18_calc, g
         'gol17_calc': gol17_calc
     }
     df_new = pd.DataFrame([row])
+
+    # جلوگیری از ذخیرهٔ ردیف‌های تکراری
     if os.path.exists(CSV_FILE):
         try:
             existing = pd.read_csv(CSV_FILE)
@@ -113,12 +105,11 @@ def job():
     dollar, gold18, gold17 = get_iran_prices()
     print(f"Dollar: {dollar}, Gold18: {gold18}")
 
-
     if ons and dollar and gold18:
         ons_toman, gol18_calc, gol17_calc = compute_derived(ons, dollar, gold18, gold17)
         save_to_csv(now, ons, dollar, gold18, gold17, ons_toman, gol18_calc, gol17_calc)
     else:
-        print("One of the prices is None. Skipping...\n")
+        print("Missing data. Skipping.")
 
 if __name__ == "__main__":
     job()
