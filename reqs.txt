@@ -1,5 +1,5 @@
 pandas
 requests
 yfinance
-beautifulsoup4
 cloudscraper
+beautifulsoup4
