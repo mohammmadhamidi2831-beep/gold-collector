@@ -39,6 +39,7 @@ def get_iran_prices():
         }
         resp = requests.get(url, headers=headers, timeout=10)
         data = resp.json()
+        print(data)
         # دلار آزاد: data['USD']['open']['sell'] یا ['buy']
         dollar = data.get('USD', {}).get('open', {}).get('sell', None)
         if dollar is None:
